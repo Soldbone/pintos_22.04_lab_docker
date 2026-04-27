@@ -223,6 +223,7 @@ thread_block (void) {
 	ASSERT (!intr_context ());
 	ASSERT (intr_get_level () == INTR_OFF);
 	struct thread *t = thread_current ();
+	ASSERT (t->status == THREAD_READY);
 	t->status = THREAD_BLOCKED;
 	list_remove(&t->elem);	// ready list에서 제거
 	list_insert_ordered(&sleep_list, &t->elem, value_less, NULL);	// TODO: Ready list에서 빼고 sleep list에 넣기
@@ -245,7 +246,7 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	// TODO: sleep list에서 스레드 제거
+	list_remove(&t->elem);	// sleep list에서 스레드 제거
 	list_push_back (&ready_list, &t->elem);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
@@ -255,7 +256,9 @@ static bool
 value_less (const struct list_elem *t1, const struct list_elem *t2,
 						void *aux UNUSED)
 {
-  return; // TODO: local ticks 비교하는 코드 짜기
+	const struct thread *a = list_entry(t1, struct thread, elem);
+	const struct thread *b = list_entry(t2, struct thread, elem);
+	return a->wake_ticks < b->wake_ticks; // TODO: local ticks 비교하는 코드 짜기
 }
 
 /* timer_sleep 호출 시 thread를 실제로 조작할 함수 */
