@@ -90,13 +90,18 @@ timer_elapsed (int64_t then) {
 /* Suspends execution for approximately TICKS timer ticks. */
 void
 timer_sleep (int64_t ticks) {
-	if (ticks <= 0)
-		return;
 	int64_t start = timer_ticks ();
 
 	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+	// while (timer_elapsed (start) < ticks)
+	// 	thread_yield ();
+	struct thread *t = thread_current ();
+	t->wake_ticks = start + ticks;
+	//TODO 인터럽트 비활성화 먼저
+	//TODO Ready list에서 빼기
+	//TODO ready -> blocked로
+	//TODO sleep list에 넣기
+	//TODO 인터럽트 활성화 하기
 }
 
 /* Suspends execution for approximately MS milliseconds. */
