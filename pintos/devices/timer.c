@@ -92,11 +92,12 @@ void
 timer_sleep (int64_t ticks) {
 	int64_t start = timer_ticks ();
 
-	ASSERT (intr_get_level () == INTR_ON);
-	// while (timer_elapsed (start) < ticks)
-	// 	thread_yield ();
+	if (ticks <= 0)
+		return;
 
-	thread_sleep(start + ticks);
+	ASSERT (intr_get_level () == INTR_ON);
+	if (timer_elapsed (start) < ticks)
+		thread_sleep(start + ticks);
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -128,6 +129,20 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
+
+	enum intr_level old_level;
+	// (현재 틱값 >= sleep_list 가장 앞의 스레드의 깨어날 틱값)이면 깨우는 코드 실행
+	struct list *sleep_list = get_sleep_list();
+	struct thread *t = list_entry (&sleep_list->head, struct thread, elem);
+
+	old_level = intr_disable ();
+	while (ticks < t->wake_ticks)
+	{
+		list_pop_front(sleep_list);								// sleep_list에서 제거
+		thread_wakeup(t);											// 스레드 깨우기 wakeup()
+		t = list_entry (&sleep_list->head, struct thread, elem);	// t 업데이트
+	}
+	intr_set_level (old_level);
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

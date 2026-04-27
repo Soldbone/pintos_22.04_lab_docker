@@ -63,7 +63,8 @@ static void init_thread (struct thread *, const char *name, int priority);
 static void do_schedule(int status);
 static void schedule (void);
 static tid_t allocate_tid (void);
-
+static bool value_less (const struct list_elem *, const struct list_elem *,
+						void *);
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
 
@@ -226,7 +227,7 @@ thread_block (void) {
 	ASSERT (t->status == THREAD_READY);
 	t->status = THREAD_BLOCKED;
 	list_remove(&t->elem);	// ready list에서 제거
-	list_insert_ordered(&sleep_list, &t->elem, value_less, NULL);	// TODO: Ready list에서 빼고 sleep list에 넣기
+	list_insert_ordered(&sleep_list, &t->elem, value_less, NULL);	// sleep list에 정렬된 상태로 넣기
 	schedule ();
 }
 
@@ -258,7 +259,7 @@ value_less (const struct list_elem *t1, const struct list_elem *t2,
 {
 	const struct thread *a = list_entry(t1, struct thread, elem);
 	const struct thread *b = list_entry(t2, struct thread, elem);
-	return a->wake_ticks < b->wake_ticks; // TODO: local ticks 비교하는 코드 짜기
+	return a->wake_ticks < b->wake_ticks;
 }
 
 /* timer_sleep 호출 시 thread를 실제로 조작할 함수 */
@@ -272,6 +273,23 @@ thread_sleep (int64_t ticks) {
 	thread_block();
 	intr_set_level (old_level);
 }
+
+/* 스레드를 깨운다. */
+void
+thread_wakeup (struct thread *t) {
+	// ready_list에 추가
+	list_push_back(&ready_list, &t->elem);
+
+	// 상태를 THREAD_READY로 변경
+	t->status = THREAD_READY;
+}
+
+/* sleep_list를 반환한다. */
+struct list *
+get_sleep_list (void) {
+	return &sleep_list;
+}
+
 
 /* Returns the name of the running thread. */
 const char *
