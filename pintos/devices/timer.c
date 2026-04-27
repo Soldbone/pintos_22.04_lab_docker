@@ -44,6 +44,7 @@ timer_init (void) {
 	outb (0x40, count >> 8);
 
 	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+	// global_ticks = -1;
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -92,7 +93,7 @@ timer_elapsed (int64_t then) {
 void
 timer_sleep (int64_t ticks) {
 	int64_t start = timer_ticks ();
-
+	printf("잠듬");
 	if (ticks <= 0) {
 		return;
 	}
@@ -138,6 +139,7 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 	// (현재 틱값 >= sleep_list 가장 앞의 스레드의 깨어날 틱값)이면 깨우는 코드 실행
 	if (ticks == global_ticks)
 	{
+		printf(global_ticks);
 		global_ticks = thread_wakeup(ticks);
 		// list_pop_front(sleep_list);									// sleep_list에서 제거
 		// thread_unblock(t);											// 스레드 깨우기 wakeup()
