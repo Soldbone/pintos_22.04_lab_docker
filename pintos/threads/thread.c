@@ -272,16 +272,30 @@ thread_sleep (int64_t ticks) {
 }
 
 /* 스레드를 깨운다. */
-void
-thread_wakeup (struct thread *t) {
-	thread_unblock(t);
+int64_t
+thread_wakeup (int64_t compare_ticks) {
+	struct list_elem *elem = list_begin(&sleep_list);									// sleep_list에서 제거
+	//엘리먼트에서 스레드뽑아서
+	while(compare_ticks == t.wake_ticks)
+	{
+		//스레드의 wait_tick값이랑 ticks랑 비교하고 <-while문 시작
+		//wait_tick이랑 ticks 같은거 전부 wait_list로(status도 바꿔주고) <-while문 끝
+		t = list_pop_front(&sleep_list);
+		//뭐시기 처리 t
+		thread_unblock(t);
+		elem = list_begin(&sleep_list);	//여기서 t.wake_ticks 가져오기
+	}
+	//sleep_list 처음거 wait_time 뽑아서 출력, 업으면 -1 출력										// 스레드 깨우기 wakeup()
+		// t 업데이트
+	if(list_head(&sleep_list) == NULL)
+		return -1;
+	else
+		return global_ticks;
+	// return head wait_뭐시기
+	// if 헤드값 없으면 -1로
+	// thread_unblock(t);
 }
 
-/* sleep_list를 반환한다. */
-struct list *
-get_sleep_list (void) {
-	return &sleep_list;
-}
 
 
 /* Returns the name of the running thread. */
