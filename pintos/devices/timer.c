@@ -95,13 +95,8 @@ timer_sleep (int64_t ticks) {
 	ASSERT (intr_get_level () == INTR_ON);
 	// while (timer_elapsed (start) < ticks)
 	// 	thread_yield ();
-	struct thread *t = thread_current ();
-	t->wake_ticks = start + ticks;
-	//TODO 인터럽트 비활성화 먼저
-	//TODO Ready list에서 빼기
-	//TODO ready -> blocked로
-	//TODO sleep list에 넣기
-	//TODO 인터럽트 활성화 하기
+
+	thread_sleep(start + ticks);
 }
 
 /* Suspends execution for approximately MS milliseconds. */

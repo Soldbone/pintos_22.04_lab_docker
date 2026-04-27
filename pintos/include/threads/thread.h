@@ -125,6 +125,9 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
 void thread_unblock (struct thread *);
+static bool value_less (const struct list_elem *, const struct list_elem *,
+						void *);
+void thread_sleep (int64_t ticks);
 
 struct thread *thread_current (void);
 tid_t thread_tid (void);
