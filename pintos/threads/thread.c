@@ -223,11 +223,7 @@ void
 thread_block (void) {
 	ASSERT (!intr_context ());
 	ASSERT (intr_get_level () == INTR_OFF);
-	struct thread *t = thread_current ();
-	ASSERT (t->status == THREAD_READY);
-	t->status = THREAD_BLOCKED;
-	list_remove(&t->elem);	// ready list에서 제거
-	list_insert_ordered(&sleep_list, &t->elem, value_less, NULL);	// sleep list에 정렬된 상태로 넣기
+	thread_current ()->status = THREAD_BLOCKED;
 	schedule ();
 }
 
@@ -247,7 +243,6 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_remove(&t->elem);	// sleep list에서 스레드 제거
 	list_push_back (&ready_list, &t->elem);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
@@ -266,22 +261,20 @@ value_less (const struct list_elem *t1, const struct list_elem *t2,
 void
 thread_sleep (int64_t ticks) {
 	enum intr_level old_level;
+	old_level = intr_disable ();
 	
 	struct thread *t = thread_current ();
-	t->wake_ticks = ticks;	// 깨어날 & 깨어난 시간을 스레드에 저장
-	old_level = intr_disable ();
-	thread_block();
+	t->wake_ticks = ticks;												// 깨어날 & 깨어난 시간을 스레드에 저장
+	list_remove (&t->elem);												// ready list에서 제거
+	list_insert_ordered (&sleep_list, &t->elem, value_less, NULL);		// sleep list에 정렬된 상태로 넣기
+	thread_block ();													// 상태를 BLOCKED로 바꾸고 컨텍스트 스위치 (대기)
 	intr_set_level (old_level);
 }
 
 /* 스레드를 깨운다. */
 void
 thread_wakeup (struct thread *t) {
-	// ready_list에 추가
-	list_push_back(&ready_list, &t->elem);
-
-	// 상태를 THREAD_READY로 변경
-	t->status = THREAD_READY;
+	thread_unblock(t);
 }
 
 /* sleep_list를 반환한다. */
