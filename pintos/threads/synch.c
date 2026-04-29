@@ -229,29 +229,33 @@ lock_acquire (struct lock *lock) {
 
 	struct thread *cur = thread_current ();
 
-	// 전체 TODO 
-	// 락을 쓸 수 없을 때 lock의 address를 저장 
-	// 락을 쓸 수 없다? 현재 스레드의 wait_on_lock에 lock의 address 저장
-	if (lock->holder) {
-		cur->wait_on_lock = &lock;
+	// 스케줄링 기준: priority
+	// 기부 받는 priority는 실제 priority에 반영되어야 함
+	// 그럼 이전 값을 저장해야 됨 -> 어디에다가? donated_priority에? 그럼 뭐 되긴 하는데 변수 이름이 좀 이상함
+	// origin_priority를 또 둬! 이것도 방법인데 그럴 바에 바꾸는 게 나음. 머리는 이게 덜 쓰긴 하는데 너무 더러움
 
-		// priority 기부해야되면 기부 
+	// donated_priority는 origin_priority로 바꾸고
+	// priority 자체에 기부받는 값들을 넣으면 된다!
+
+	// 전체 TODO 
+	// 락을 쓸 수 없을 때 현재 스레드의 wait_on_lock에 lock의 address 저장
+	if (lock->holder != NULL) {
+		cur->wait_on_lock = lock;
+
+		// priority 기부해야되면 기부
 		struct thread *holder_t = lock->holder;
-		if (holder_t->donated_priority < cur->priority && holder_t->priority < cur->priority) {
+		if (holder_t->priority < cur->priority) {
 			list_insert_ordered(&holder_t->donations, &cur->d_elem, cmp_lock_priority, NULL);
 			// 추가하고 그중에 내가 제일크면 기부 (리스트의 첫번째 d_elem과 현재 스레드의 d_elem을 비교해서 같으면 현재 스레드의 우선순위가 가장 크다)
-			if (cur->d_elem == list_front(&holder_t->donations)) {
-				// 현재 스레드의 우선순위를 lock 주인에게 기부해줌
-				// 문제) 이 락 요청하는 애도 누군가한테 기부 받았으면 어떡함?
-				if (cur->donated_priority != -1) {
-					holder_t->donated_priority = cur->donated_priority; // 이렇게 priority를 바꿔주기만 하면 혼자 알아서 락 계속 갖고 있으면서 작업 끝까지 한다고? 그리고 알아서 cur은 락을 획득한다고? 
-
-				}
-				else {
-					holder_t->donated_priority = cur->priority;
-				}
-			}
-
+			// 현재 스레드의 우선순위를 lock 주인에게 기부해줌
+			// 문제) 이 락 요청하는 애도 누군가한테 기부 받았으면 어떡함?
+			// if (cur->donated_priority != -1) {
+			// 	holder_t->donated_priority = cur->donated_priority; // 이렇게 priority를 바꿔주기만 하면 혼자 알아서 락 계속 갖고 있으면서 작업 끝까지 한다고? 그리고 알아서 cur은 락을 획득한다고? 
+			// }
+			// else {
+			// 	holder_t->donated_priority = cur->priority;
+			// }
+			holder_t->priority = cur->priority;
 		}
 	}
 
@@ -297,33 +301,28 @@ lock_release (struct lock *lock) {
 	// (1) donations가 남아 있으면 첫번째 우선순위로 설정 (2) donations가 비어 있으면 -1로 설정
 
 
-	lock->holder = NULL;
 	// donation 리스트를 돌아? 어떻게 도는가. 
-	struct thread *cur = thread_current ();
-
-	struct list_elem *e;
-	for (e = list_begin(&cur->donations); e != list_end(&cur->donations); e = list_next(e)) // donations empty 예외처리를 해야되나? -> 윤지답은 안해도될 것 같다... 지섭답은 해야될 것 같다... 
+	// struct thread *cur = thread_current ();
+	struct thread *holder_t = lock->holder;
+	struct list_elem *e; // d_elem
+	for (e = list_begin(&lock->holder->donations); e != list_end(&lock->holder->donations); e = list_next(e))  { // donations empty 예외처리를 해야되나? -> 윤지답은 안해도될 것 같다... 지섭답은 해야될 것 같다... 
     	if (list_entry(e, struct thread, d_elem)->wait_on_lock == lock) {
-			list_entry(e, struct thread, d_elem)->wait_on_lock = NULL;
-			list_remove(e); 
+			// list_entry(e, struct thread, d_elem)->wait_on_lock = NULL; // 이거 필요 없는 듯. lock_acquire()에서 처리해줌.
+			list_remove(e);
 		}
+	}
 	
-	if (list_empty(&cur->donations)) {
-		cur->donated_priority = -1;
+	if (list_empty(&lock->holder->donations)) {
+		lock->holder->priority = lock->holder->origin_priority;
 	} else {
-		e = list_front(&cur->donations);
-
+		e = list_front(&lock->holder->donations);
 		struct thread *d_thread = list_entry(e, struct thread, d_elem);
-		if (d_elem_priority != -1) {
-			cur->donated_priority = d_thread->donated_priority;
-		} else {
-			cur->donated_priority = d_thread->priority;
-		}
+		lock->holder->priority = d_thread->priority;
 	}
 
 	// TODO 
 	// 중첩기부에서 8단계 제한 
-
+	lock->holder = NULL;
 	sema_up (&lock->semaphore);
 }
 

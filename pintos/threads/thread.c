@@ -445,11 +445,11 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
-	t->donated_priority = -1;
+	t->origin_priority = priority;
 	t->magic = THREAD_MAGIC;
 
-	list_init(&donations);
-	
+	list_init(&t->donations);
+
 	// d_elem 은 어떻게 초기화? -> 초기화 할 필요없다. 
 	t->wait_on_lock = NULL;
 }
