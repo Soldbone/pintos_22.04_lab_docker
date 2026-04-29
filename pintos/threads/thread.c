@@ -344,13 +344,16 @@ thread_set_priority (int new_priority) {
 			thread_yield();
 		}
 	}
-
-	
 	// 만약 새로운 priority 가 ready list 스레드 중 가장 큰 priority보다 작아졋다?
 	// 즉시 CPU 양보 
 	
 	// ready_list에서 현재 스레드의 priority 순서대로 재정렬 
 	// list_sort(&ready_list, cmp_priority, NULL);
+
+
+	// 이 현재 스레드가 wait_on_lock 하던 스레드 찾아가서 기부하던 priority 취소취소 
+	// 그리고 걔는 donations 리스트에서 해당 락 기다리는 스레드 중에서서 다시 가장 높은 우선순위 찾아서 기부받도록 해야함 
+
 }
 
 /* 현재 스레드의 우선순위를 반환한다. */
@@ -442,7 +445,13 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	t->donated_priority = -1;
 	t->magic = THREAD_MAGIC;
+
+	list_init(&donations);
+	
+	// d_elem 은 어떻게 초기화? -> 초기화 할 필요없다. 
+	t->wait_on_lock = NULL;
 }
 
 /* 다음에 스케줄할 스레드를 선택해 반환한다. 실행 큐가 비어 있지 않다면

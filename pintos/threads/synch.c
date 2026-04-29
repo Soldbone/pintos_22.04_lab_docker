@@ -202,6 +202,16 @@ lock_init (struct lock *lock) {
 	sema_init (&lock->semaphore, 1);
 }
 
+static bool
+cmp_lock_priority (const struct list_elem *t1, const struct list_elem *t2,
+						void *aux UNUSED)
+{
+	const struct thread *a = list_entry(t1, struct thread, d_elem);
+	const struct thread *b = list_entry(t2, struct thread, d_elem);
+	return a->priority > b->priority; // TODO: local ticks 비교하는 코드 짜기
+}
+
+
 /* Acquires LOCK, sleeping until it becomes available if
    necessary.  The lock must not already be held by the current
    thread.
@@ -216,8 +226,40 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
+
+	struct thread *cur = thread_current ();
+
+	// 전체 TODO 
+	// 락을 쓸 수 없을 때 lock의 address를 저장 
+	// 락을 쓸 수 없다? 현재 스레드의 wait_on_lock에 lock의 address 저장
+	if (lock->holder) {
+		cur->wait_on_lock = &lock;
+
+		// priority 기부해야되면 기부 
+		struct thread *holder_t = lock->holder;
+		if (holder_t->donated_priority < cur->priority && holder_t->priority < cur->priority) {
+			list_insert_ordered(&holder_t->donations, &cur->d_elem, cmp_lock_priority, NULL);
+			// 추가하고 그중에 내가 제일크면 기부 (리스트의 첫번째 d_elem과 현재 스레드의 d_elem을 비교해서 같으면 현재 스레드의 우선순위가 가장 크다)
+			if (cur->d_elem == list_front(&holder_t->donations)) {
+				// 현재 스레드의 우선순위를 lock 주인에게 기부해줌
+				// 문제) 이 락 요청하는 애도 누군가한테 기부 받았으면 어떡함?
+				if (cur->donated_priority != -1) {
+					holder_t->donated_priority = cur->donated_priority; // 이렇게 priority를 바꿔주기만 하면 혼자 알아서 락 계속 갖고 있으면서 작업 끝까지 한다고? 그리고 알아서 cur은 락을 획득한다고? 
+
+				}
+				else {
+					holder_t->donated_priority = cur->priority;
+				}
+			}
+
+		}
+	}
+
+	// 현재 스레드가 락을 얻은 경우에 현재 스레드의 donations 리스트에서 우선순위 기부해줍쇼 해야 하나? -> 아닌 것 같다. 위에서 이미 기부해줄게! 했다.
+	// 난 락 주인보다도 작으니까... 할 수 잇는게 없어 -> 그럼 block == lock에 있는 semaphore의 waiters 리스트에 넣는다. (sema 값이 0인 경우에)
 	sema_down (&lock->semaphore);
 	lock->holder = thread_current ();
+	cur->wait_on_lock = NULL;
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -250,7 +292,38 @@ lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
 
+	
+	// 락이 제거되면, 현재 스레드가 제거한 락을 원하던 모든 스레드들을 donations 리스트에서 제거하고, donated_priority를 원래 priority로 설정 (제거한 애들 wait_on_lock도 적절히 변경해줄 것) -> 윤지가 잘 이해 못해서 그냥 받아썼다고 했음
+	// (1) donations가 남아 있으면 첫번째 우선순위로 설정 (2) donations가 비어 있으면 -1로 설정
+
+
 	lock->holder = NULL;
+	// donation 리스트를 돌아? 어떻게 도는가. 
+	struct thread *cur = thread_current ();
+
+	struct list_elem *e;
+	for (e = list_begin(&cur->donations); e != list_end(&cur->donations); e = list_next(e)) // donations empty 예외처리를 해야되나? -> 윤지답은 안해도될 것 같다... 지섭답은 해야될 것 같다... 
+    	if (list_entry(e, struct thread, d_elem)->wait_on_lock == lock) {
+			list_entry(e, struct thread, d_elem)->wait_on_lock = NULL;
+			list_remove(e); 
+		}
+	
+	if (list_empty(&cur->donations)) {
+		cur->donated_priority = -1;
+	} else {
+		e = list_front(&cur->donations);
+
+		struct thread *d_thread = list_entry(e, struct thread, d_elem);
+		if (d_elem_priority != -1) {
+			cur->donated_priority = d_thread->donated_priority;
+		} else {
+			cur->donated_priority = d_thread->priority;
+		}
+	}
+
+	// TODO 
+	// 중첩기부에서 8단계 제한 
+
 	sema_up (&lock->semaphore);
 }
 
