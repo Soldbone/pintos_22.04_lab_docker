@@ -74,7 +74,7 @@ sema_down (struct semaphore *sema) {
 	ASSERT (!intr_context ());
 
 	old_level = intr_disable ();
-	while (sema->value == 0) {
+	while (sema->value == 0) { // 왜 if 아니고 while 문? 어짜피 sema 하나만 들어오잖아 
 		// waiters 리스트에 priority 순서대로 스레드 삽입 
 		// list_push_back (&sema->waiters, &thread_current ()->elem);
 		list_insert_ordered(&sema->waiters, &thread_current ()->elem, cmp_priority, NULL); 
@@ -125,7 +125,7 @@ sema_up (struct semaphore *sema) {
 		first = list_entry (list_pop_front (&sema->waiters), struct thread, elem);
 		thread_unblock (first);
 	}
-	sema->value++;
+	sema->value++; //인터럽트 꺼뒀기 때문에 unblock 아래에서 sema 증가시켜도 괜찮음 
 
 	// 궁금한바... 새로 뽑은 스레드가 현재보다 priority 높으면 바로 실행된댔는데, 바로 실행된다는게... sema value조차 올리지 않고, 인터럽트도 원래상태로 안돌려놓고 ㄹㅇ 바로. 바로 실행되는건지 or 이정도 작업은 다 한다음에 CPU를 양보해주는건지 
 	// 양보해주고 다시 돌아오나? 
@@ -268,6 +268,7 @@ lock_held_by_current_thread (const struct lock *lock) {
 struct semaphore_elem {
 	struct list_elem elem;              /* List element. */
 	struct semaphore semaphore;         /* This semaphore. */
+	struct thread *t;
 };
 
 /* Initializes condition variable COND.  A condition variable
@@ -300,6 +301,15 @@ cond_init (struct condition *cond) {
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
+
+static bool cmp_sema_elem (const struct list_elem *waiter1, const struct list_elem *waiter2,
+	void *aux UNUSED)
+{
+	const struct semaphore_elem *a = list_entry (waiter1, struct semaphore_elem, elem);
+	const struct semaphore_elem *b = list_entry (waiter2, struct semaphore_elem, elem);
+	return a->t->priority > b->t->priority; 
+}
+
 void
 cond_wait (struct condition *cond, struct lock *lock) {
 	struct semaphore_elem waiter;
@@ -310,9 +320,12 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	sema_init (&waiter.semaphore, 0);
+	struct thread *cur = thread_current();
+	waiter.t = cur;
+	waiter.elem = cur->elem;
 
 	// list_push_back (&cond->waiters, &waiter.elem);
-	list_insert_ordered(&cond->waiters, &waiter.elem, cmp_priority, NULL);
+	list_insert_ordered(&cond->waiters, &waiter.elem, cmp_sema_elem, NULL);
 
 	lock_release (lock);
 	sema_down (&waiter.semaphore);
