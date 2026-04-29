@@ -340,9 +340,12 @@ void
 thread_set_priority (int new_priority) {
 	thread_current ()->priority = new_priority;
 
+	if (list_empty(&ready_list))
+		return;
 	if (new_priority < list_entry (list_front (&ready_list), struct thread, elem)->priority) {
 		thread_yield();
 	}
+	//ready list NULL일 때 처리
 
 	
 	// 만약 새로운 priority 가 ready list 스레드 중 가장 큰 priority보다 작아졋다?

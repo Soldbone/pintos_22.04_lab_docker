@@ -32,6 +32,14 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+/* One semaphore in a list. */
+struct semaphore_elem {
+	struct list_elem elem;              /* List element. */
+	struct semaphore semaphore;         /* This semaphore. */
+	struct thread *thread;	//세마포어 위치
+};
+
+
 static bool
 cmp_priority (const struct list_elem *t1, const struct list_elem *t2,
 						void *aux UNUSED)
@@ -39,6 +47,15 @@ cmp_priority (const struct list_elem *t1, const struct list_elem *t2,
 	const struct thread *a = list_entry(t1, struct thread, elem);
 	const struct thread *b = list_entry(t2, struct thread, elem);
 	return a->priority > b->priority; // TODO: local ticks 비교하는 코드 짜기
+}
+
+static bool
+cmp_sem_priority (const struct list_elem *t1, const struct list_elem *t2,
+						void *aux UNUSED)
+{
+	const struct semaphore_elem *a = list_entry(t1, struct semaphore_elem, elem);
+	const struct semaphore_elem *b = list_entry(t2, struct semaphore_elem, elem);
+	return a->thread->priority > b->thread->priority; // TODO: local ticks 비교하는 코드 짜기
 }
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
@@ -249,7 +266,6 @@ void
 lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
-
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
 }
@@ -264,11 +280,12 @@ lock_held_by_current_thread (const struct lock *lock) {
 	return lock->holder == thread_current ();
 }
 
-/* One semaphore in a list. */
-struct semaphore_elem {
-	struct list_elem elem;              /* List element. */
-	struct semaphore semaphore;         /* This semaphore. */
-};
+// /* One semaphore in a list. */
+// struct semaphore_elem {
+// 	struct list_elem elem;              /* List element. */
+// 	struct semaphore semaphore;         /* This semaphore. */
+// 	struct thread *thread;	//세마포어 위치
+// };
 
 /* Initializes condition variable COND.  A condition variable
    allows one piece of code to signal a condition and cooperating
@@ -310,9 +327,9 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	sema_init (&waiter.semaphore, 0);
-
+	waiter.thread = thread_current();
 	// list_push_back (&cond->waiters, &waiter.elem);
-	list_insert_ordered(&cond->waiters, &waiter.elem, cmp_priority, NULL);
+	list_insert_ordered(&cond->waiters, &waiter.elem, cmp_sem_priority, NULL);
 
 	lock_release (lock);
 	sema_down (&waiter.semaphore);
