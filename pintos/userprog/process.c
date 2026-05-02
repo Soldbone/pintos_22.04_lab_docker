@@ -449,26 +449,29 @@ parse_command_line (char *cmdline, struct parsed_command *cmd) {
 	ASSERT (cmdline != NULL); 
 	ASSERT (cmd != NULL); 
 	
-
+	char *save = NULL;
 	// struct parsed_command {
 	// 	int argc;
 	// 	char *argv[MAX_ARGS];
 	// 	char *program_name;
 	// };
 
+	// 내가 인자 개수 count해 여기서?
+	// argv 도 하나하나 넣어주고
+
 	// memset 함수는 메모리의 연속된 바이트 구간을 같은 값으로 채우는 함수 
 	// 채울 메모리의 시작 주소, 각 바이트에 넣을 값, 바이트 개수 
 	memset (cmd, 0, sizeof *cmd);
-	char *save = NULL;
+	
 
 	// 입력이 아무것도 없으면? 
 	if (cmdline[0] == '\0')
 		return false;
 
-	// 내가 인자 개수 count해 여기서?
-	// argv 도 하나하나 넣어주고
+	// 공백 단위로 자르는거 잇어 C언어에도? -> strtok_r() : 문자열을 구분자 기준으로 잘라서 token을 하나씩 꺼내는 함수
+	// str은 처음 자를 문자열, delim은 구분자, saveptr은 다음에 어디서부터 이어서 자를지 기억하는 포인터 
+	// 처음 호출할 때만 원본 문자열을 넣고 그 다음부터는 첫 번째 인자에 NULL 넣음. 원본 문자열을 직접 바꿈. 문자열 안의 공백은 \0 으로 바꾸고 각 token은 원래 문자열 내부를 가리키는 포인터. 더 이상 자를 토큰이 없으면 “끝났다”는 신호로 `NULL`을 반환
 
-	// 공백 단위로 자르는거 잇어 C언어에도?
 	char *token = strtok_r(cmdline, " ", &save);
 
 	// 입력이 공백만 있으면? 
@@ -479,9 +482,8 @@ parse_command_line (char *cmdline, struct parsed_command *cmd) {
 	cmd->argv[0] = token;
 	cmd->program_name = token; 
 
-	int i = 0;
+	int i = 1;
 	
-	// 여기가 좀 애매함 
     while (token != NULL && i < MAX_ARGS) {
         token = strtok_r(NULL, " ", &save);
 		if (token != NULL) { // *token != NULL 이 맞다고 생각했는데 token이 NULL일 경우 *token 접근하면 세그폴트 터질 수 있고 
@@ -490,11 +492,13 @@ parse_command_line (char *cmdline, struct parsed_command *cmd) {
 		}
     }
 
-	if (i > MAX_ARGS)
+	if (token != NULL)
 		return false;
 
 	cmd->argc = i;
 	return true;
+
+	// AI를 너무 많이 써버렷다. 
 
 }
 
