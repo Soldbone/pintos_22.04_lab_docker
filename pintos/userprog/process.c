@@ -465,6 +465,56 @@ setup_arguments (struct intr_frame *if_, const struct parsed_command *cmd) {
 	ASSERT (if_ != NULL);
 	ASSERT (cmd != NULL);
 
+	uintptr_t stack_bottom = USER_STACK - PGSIZE;
+	char *arg_addrs[MAX_ARGS];	// 유저 공간에 복사해 놓은 주소를 유저의 argv에 전달할 때 쓸 변수
+
+	// TODO: Stack에 push하기 (argv[0][...], ...)
+	for (int i = cmd->argc - 1; i >= 0; i--) {
+		size_t len = strlen (cmd->argv[i]) + 1;
+
+		if (if_->rsp < stack_bottom + len) {
+			return false;
+		}
+		if_->rsp -= len;
+		memcpy ((void *) if_->rsp, cmd->argv[i], len);	// 지금 현재 있는 cmd->argv[i] 값들은 커널 메모리에 존재하는 값이라서 유저 메모리 영역으로 '복사'를 해줘야 함. 커널 메모리를 유저가 쓰면 안 되니까.
+
+		arg_addrs[i] = (char *) if_->rsp;				// 유저 영역에 저장된 argv[i]들의 주소값을 저장
+	}
+	
+	// TODO: word align (8bytes padding)
+	// $rsp 위치가 8의 배수가 아니면 8의 배수로 맞춰야 함. 8바이트가 되기까지 부족한 만큼을 건너뛰기 위해 나머지 연산 사용
+	if (if_->rsp < stack_bottom + if_->rsp % 8) {
+			return false;
+	}
+	if_->rsp -= if_->rsp % 8;	// 8은 Memory Alignment 단위인 8바이트를 의미
+
+	// argv[argc] 위치에 NULL 삽입
+	if (if_->rsp < stack_bottom + sizeof (char *)) {
+			return false;
+	}
+	if_->rsp -= sizeof (char *);	// argv[i]는 char * 크기를 가지므로 여기도 통일
+	*(char **) if_->rsp = NULL;		// char *의 값을 넣기 위해서 char **가 갖는 값(char *)으로 접근하여 할당한다. 그렇지 않으면 해당 주소값 자체가 char 하나로(1바이트 값) 덮어 씌워진다.
+
+	// TODO: argv[argc] ~ argv[i]까지 push: 유저 공간의 argv 포인터 주소를 유저 argv에 전달한다.
+	for (int i = cmd->argc - 1; i >= 0; i--) {
+		if (if_->rsp < stack_bottom + sizeof (char *)) {
+			return false;
+		}
+		if_->rsp -= sizeof(char *);
+		*(char **) if_->rsp = arg_addrs[i];
+	}
+
+	char **argv = (char **) if_->rsp;	// 레지스터에 삽입할 때 기존 argv처럼 쓸 수 있도록 제공
+	// TODO: 내 구현 스코프 밖 부분: rdi = argc, rsi = argv
+
+
+	// TODO: fake 반환 주소에 NULL push: _start() 함수의 초기 스택 프레임 모양을 일반 함수 호출처럼 맞추려고 해주는 행동이다.
+	if (if_->rsp < stack_bottom + sizeof (void *)) {
+			return false;
+	}
+	if_->rsp -= sizeof (void *);
+	*(void **) if_->rsp = NULL;
+
 	return true;
 }
 
