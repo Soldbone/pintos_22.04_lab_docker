@@ -466,22 +466,22 @@ setup_arguments (struct intr_frame *if_, const struct parsed_command *cmd) {
 	ASSERT (cmd != NULL);
 
 	uintptr_t stack_bottom = USER_STACK - PGSIZE;
-	char *arg_addrs[MAX_ARGS];	// 유저 공간에 복사해 놓은 주소를 유저의 argv에 전달할 때 쓸 변수
+	char *arg_addrs[MAX_ARGS];	// argv 값들을 유저 공간 stack에 push한 이후 유저 공간의 argv 주소를 저장하는 영역에 주소값을 push할 때 쓸 변수
 
-	// TODO: Stack에 push하기 (argv[0][...], ...)
+	// Stack에 push하기 (파싱된 문자열 인자들)
 	for (int i = cmd->argc - 1; i >= 0; i--) {
 		size_t len = strlen (cmd->argv[i]) + 1;
 
-		if (if_->rsp < stack_bottom + len) {
+		if (if_->rsp < stack_bottom + len) {	// 계속해서 주어진 유저 공간이 초과되지는 않는지 검사한다.
 			return false;
 		}
 		if_->rsp -= len;
-		memcpy ((void *) if_->rsp, cmd->argv[i], len);	// 지금 현재 있는 cmd->argv[i] 값들은 커널 메모리에 존재하는 값이라서 유저 메모리 영역으로 '복사'를 해줘야 함. 커널 메모리를 유저가 쓰면 안 되니까.
+		memcpy ((void *) if_->rsp, cmd->argv[i], len);	// 지금 현재 있는 cmd->argv[i] 값들은 커널 메모리에 존재하는 값이라서 유저 메모리 영역으로 '복사'를 해줘야 함. 커널 메모리를 유저가 쓰면 안 되기 때문이기도 하고 수명 문제도 있음
 
-		arg_addrs[i] = (char *) if_->rsp;				// 유저 영역에 저장된 argv[i]들의 주소값을 저장
+		arg_addrs[i] = (char *) if_->rsp;				// 유저 영역에 저장된 cmd->argv[i]들의 주소값을 저장
 	}
 	
-	// TODO: word align (8bytes padding)
+	// word align (8bytes padding)
 	// $rsp 위치가 8의 배수가 아니면 8의 배수로 맞춰야 함. 8바이트가 되기까지 부족한 만큼을 건너뛰기 위해 나머지 연산 사용
 	if (if_->rsp < stack_bottom + if_->rsp % 8) {
 			return false;
@@ -492,10 +492,10 @@ setup_arguments (struct intr_frame *if_, const struct parsed_command *cmd) {
 	if (if_->rsp < stack_bottom + sizeof (char *)) {
 			return false;
 	}
-	if_->rsp -= sizeof (char *);	// argv[i]는 char * 크기를 가지므로 여기도 통일
-	*(char **) if_->rsp = NULL;		// char *의 값을 넣기 위해서 char **가 갖는 값(char *)으로 접근하여 할당한다. 그렇지 않으면 해당 주소값 자체가 char 하나로(1바이트 값) 덮어 씌워진다.
+	if_->rsp -= sizeof (char *);	// argv[i]는 char * 크기를 가지므로 그만큼을 비워두고 저장한다.
+	*(char **) if_->rsp = NULL;		// char *의 값(메모리 주소값)을 넣기 위해서 char **가 갖는 값(char *)으로 접근하여 할당한다. 그렇지 않으면 해당 주소값 자체가 char 하나로(1바이트 값) 덮어 씌워진다.
 
-	// TODO: argv[argc] ~ argv[i]까지 push: 유저 공간의 argv 포인터 주소를 유저 argv에 전달한다.
+	// argv[argc] ~ argv[i]까지 push: 유저 공간에 있는 argv의 주소값을 유저 공간의 스택 영역에 push한다
 	for (int i = cmd->argc - 1; i >= 0; i--) {
 		if (if_->rsp < stack_bottom + sizeof (char *)) {
 			return false;
@@ -504,11 +504,10 @@ setup_arguments (struct intr_frame *if_, const struct parsed_command *cmd) {
 		*(char **) if_->rsp = arg_addrs[i];
 	}
 
-	char **argv = (char **) if_->rsp;	// 레지스터에 삽입할 때 기존 argv처럼 쓸 수 있도록 제공
-	// TODO: 내 구현 스코프 밖 부분: rdi = argc, rsi = argv
+	char **argv = (char **) if_->rsp;	// 레지스터에 삽입할 때 기존 argv처럼 쓸 수 있도록 제공해주기 위한 코드
+	// ap/register-hook-and-tests 브랜치에서 할 작업: rdi = argc, rsi = argv
 
-
-	// TODO: fake 반환 주소에 NULL push: _start() 함수의 초기 스택 프레임 모양을 일반 함수 호출처럼 맞추려고 해주는 행동이다.
+	// fake 반환 주소에 NULL push: _start() 함수의 초기 스택 프레임 모양을 일반 함수 호출처럼 맞추는 부분 (반환하는 거 없어서 사실 필요 없는데 다른 함수랑 똑같이 생기게 하려고 작성하는 코드)
 	if (if_->rsp < stack_bottom + sizeof (void *)) {
 			return false;
 	}
