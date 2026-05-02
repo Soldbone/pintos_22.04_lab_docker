@@ -464,10 +464,9 @@ static bool
 setup_arguments (struct intr_frame *if_, const struct parsed_command *cmd) {
 	ASSERT (if_ != NULL);
 	ASSERT (cmd != NULL);
-
-	//rdi rsi
+	
 	if_->R.rdi = (uint64_t)cmd->argc;
-	if_->R.rsi = (uint64_t)cmd->argv;
+	if_->R.rsi = (uint64_t)argv;
 
 	return true;
 }
