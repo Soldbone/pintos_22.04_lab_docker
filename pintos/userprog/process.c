@@ -493,6 +493,14 @@ setup_arguments (struct intr_frame *if_, const struct parsed_command *cmd) {
 			return false;
 	}
 	if_->rsp -= sizeof (char *);	// argv[i]는 char * 크기를 가지므로 그만큼을 비워두고 저장한다.
+
+	/*
+	주소값을 값으로 가질 수 있는 타입은 무엇인가?
+	-> 포인터
+	char * -> char
+	*(char **) -> (char *) = 주소값;
+	*/
+
 	*(char **) if_->rsp = NULL;		// char *의 값(메모리 주소값)을 넣기 위해서 char **가 갖는 값(char *)으로 접근하여 할당한다. 그렇지 않으면 해당 주소값 자체가 char 하나로(1바이트 값) 덮어 씌워진다.
 
 	// argv[argc] ~ argv[i]까지 push: 유저 공간에 있는 argv의 주소값을 유저 공간의 스택 영역에 push한다
@@ -515,6 +523,8 @@ setup_arguments (struct intr_frame *if_, const struct parsed_command *cmd) {
 	*(void **) if_->rsp = NULL;
 
 	return true;
+
+	// AI를 너무 많이 써버렷다...
 }
 
 
