@@ -559,7 +559,8 @@ setup_arguments (struct intr_frame *if_, const struct parsed_command *cmd) {
 
 	char **argv = (char **) if_->rsp;	// 레지스터에 삽입할 때 기존 argv처럼 쓸 수 있도록 제공해주기 위한 코드
 	// ap/register-hook-and-tests 브랜치에서 할 작업: rdi = argc, rsi = argv
-
+	if_->R.rdi = (uint64_t)cmd->argc;
+	if_->R.rsi = (uint64_t)argv;
 	// fake 반환 주소에 NULL push: _start() 함수의 초기 스택 프레임 모양을 일반 함수 호출처럼 맞추는 부분 (반환하는 거 없어서 사실 필요 없는데 다른 함수랑 똑같이 생기게 하려고 작성하는 코드)
 	if (if_->rsp < stack_bottom + sizeof (void *)) {
 			return false;
