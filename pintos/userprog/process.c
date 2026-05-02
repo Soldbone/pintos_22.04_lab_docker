@@ -442,19 +442,60 @@ done:
 
 /* Splits CMDLINE into executable name and argv tokens.
  * TODO(ap/parser): Implement whitespace tokenization and populate CMD. */
+
+ //  (!parse_command_line (file_name, &cmd))
 static bool
 parse_command_line (char *cmdline, struct parsed_command *cmd) {
-	ASSERT (cmdline != NULL);
-	ASSERT (cmd != NULL);
+	ASSERT (cmdline != NULL); 
+	ASSERT (cmd != NULL); 
+	
 
+	// struct parsed_command {
+	// 	int argc;
+	// 	char *argv[MAX_ARGS];
+	// 	char *program_name;
+	// };
+
+	// memset 함수는 메모리의 연속된 바이트 구간을 같은 값으로 채우는 함수 
+	// 채울 메모리의 시작 주소, 각 바이트에 넣을 값, 바이트 개수 
 	memset (cmd, 0, sizeof *cmd);
+	char *save = NULL;
+
+	// 입력이 아무것도 없으면? 
 	if (cmdline[0] == '\0')
 		return false;
 
-	cmd->argc = 1;
-	cmd->argv[0] = cmdline;
-	cmd->program_name = cmdline;
+	// 내가 인자 개수 count해 여기서?
+	// argv 도 하나하나 넣어주고
+
+	// 공백 단위로 자르는거 잇어 C언어에도?
+	char *token = strtok_r(cmdline, " ", &save);
+
+	// 입력이 공백만 있으면? 
+	if (token == NULL) 
+		return false;
+
+
+	cmd->argv[0] = token;
+	cmd->program_name = token; 
+
+	int i = 0;
+	
+	// 여기가 좀 애매함 
+    while (token != NULL && i < MAX_ARGS) {
+        token = strtok_r(NULL, " ", &save);
+		if (token != NULL) { // *token != NULL 이 맞다고 생각했는데 token이 NULL일 경우 *token 접근하면 세그폴트 터질 수 있고 
+			cmd->argv[i] = token;
+			i++;
+		}
+    }
+
+	if (i > MAX_ARGS)
+		return false;
+
+	cmd->argc = i;
 	return true;
+
 }
 
 /* Copies parsed arguments onto the user stack.
