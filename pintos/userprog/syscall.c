@@ -47,6 +47,16 @@ sys_exit (int status) {
 	thread_exit ();
 }
 
+static int
+sys_write (int fd, const void *buffer, unsigned size) {
+	int written_size = 0;
+	if (fd == STDOUT_FILENO) {
+		putbuf (buffer, size);
+		written_size = size;
+	}
+	return written_size;
+}
+
 
 /* 주 시스템 콜 인터페이스 */
 void
@@ -58,6 +68,9 @@ syscall_handler (struct intr_frame *f) {
 	switch (f->R.rax) {
 		case SYS_EXIT:
 			sys_exit ((int)f->R.rdi);
+			break;
+		case SYS_WRITE:
+			sys_write (f->R.rdi, f->R.rsi, f->R.rdx);
 			break;
 		default:
 			sys_exit(-1);
