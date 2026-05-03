@@ -60,7 +60,7 @@ syscall_handler (struct intr_frame *f) {
 			sys_exit ((int)f->R.rdi);
 			break;
 		default:
-			thread_exit();
+			sys_exit(-1);
 			break;
 	}
 }
