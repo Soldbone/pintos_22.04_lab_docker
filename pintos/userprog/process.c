@@ -342,6 +342,9 @@ load (char *file_name, struct intr_frame *if_) {
 	if (!parse_command_line (file_name, &cmd))
 		goto done;
 
+	// command line 파싱이 성공하면 현재 스레드의 이름을 프로그램명으로 바꾼다 (안 바꾸면 이름에 인자까지 들어갈 수 있음)
+	strlcpy (thread_current ()->name, cmd.program_name, sizeof (thread_current ()->name));
+
 	/* 페이지 디렉터리를 할당하고 활성화한다. */
 	t->pml4 = pml4_create ();
 	if (t->pml4 == NULL)
