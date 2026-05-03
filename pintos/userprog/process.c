@@ -211,6 +211,10 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: 힌트) process_wait(initd)가 반환되면 pintos가 종료되므로,
 	 * XXX:       process_wait를 구현하기 전에는 여기에 무한 루프를
 	 * XXX:       추가하는 것을 권장한다. */
+
+	for (int i = 1000000000; i >= 0; i--) {
+		;
+	}
 	return -1;
 }
 

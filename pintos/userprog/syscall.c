@@ -11,7 +11,7 @@
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 static void sys_exit (int status);
-
+static int sys_write (int fd, uint64_t *buffer, int size);
 /* 시스템 콜.
  *
  * 이전에는 시스템 콜 서비스가 인터럽트 핸들러에서 처리되었다
@@ -47,6 +47,21 @@ sys_exit (int status) {
 	thread_exit ();
 }
 
+static int
+sys_write (int fd, uint64_t *buffer, int size) {
+	struct thread *curr = thread_current ();
+
+	if(buffer ==NULL)
+		sys_exit(-1);
+
+	if(fd == 1){
+		// for(int i = 1; i < size; i++)
+		// 	msg("%s", buffer[i]);
+		putbuf(buffer, size);
+		return size;
+	}
+	return -1;
+}
 
 /* 주 시스템 콜 인터페이스 */
 void
@@ -59,8 +74,17 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_EXIT:
 			sys_exit ((int)f->R.rdi);
 			break;
+		case SYS_WRITE: {
+			int fd = (int)f->R.rdi;
+			void *buffer = (void*)f->R.rsi;
+			int size = (int)f->R.rdx;
+
+			f->R.rax = sys_write(fd, buffer, size);
+			break;
+		}
 		default:
-			thread_exit();
+			sys_exit(-1);
+			// thread_exit();
 			break;
 	}
 }
