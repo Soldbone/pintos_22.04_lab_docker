@@ -211,6 +211,10 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: 힌트) process_wait(initd)가 반환되면 pintos가 종료되므로,
 	 * XXX:       process_wait를 구현하기 전에는 여기에 무한 루프를
 	 * XXX:       추가하는 것을 권장한다. */
+
+	for (int i = 1000000000; i >= 0; i--) {
+		// thread_yield ();
+	}
 	return -1;
 }
 
@@ -337,6 +341,9 @@ load (char *file_name, struct intr_frame *if_) {
 
 	if (!parse_command_line (file_name, &cmd))
 		goto done;
+
+	// command line 파싱이 성공하면 현재 스레드의 이름을 프로그램명으로 바꾼다 (안 바꾸면 이름에 인자까지 들어갈 수 있음)
+	strlcpy (thread_current ()->name, cmd.program_name, sizeof (thread_current ()->name));
 
 	/* 페이지 디렉터리를 할당하고 활성화한다. */
 	t->pml4 = pml4_create ();

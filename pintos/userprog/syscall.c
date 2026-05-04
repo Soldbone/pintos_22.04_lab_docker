@@ -11,6 +11,7 @@
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 static void sys_exit (int status);
+static int sys_write (int fd, const void *buffer, unsigned size);
 
 /* 시스템 콜.
  *
@@ -47,6 +48,23 @@ sys_exit (int status) {
 	thread_exit ();
 }
 
+static int
+sys_write (int fd, const void *buffer, unsigned size) {
+	int written_size = 0;
+
+	// 나중에 확인해볼 코드 (아마 잘못된 주소에 접근하는 프로그램은 kill 해야한다는 요구사항이 있을 거임)
+	// if (buffer == NULL) {
+	// 	sys_exit(-1);
+	// }
+
+	if (fd == STDOUT_FILENO) {
+		putbuf (buffer, size);
+		written_size = size;
+	}
+
+	return written_size;
+}
+
 
 /* 주 시스템 콜 인터페이스 */
 void
@@ -59,8 +77,11 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_EXIT:
 			sys_exit ((int)f->R.rdi);
 			break;
+		case SYS_WRITE:
+			f->R.rax = sys_write (f->R.rdi, f->R.rsi, f->R.rdx);
+			break;
 		default:
-			thread_exit();
+			sys_exit(-1);
 			break;
 	}
 }
