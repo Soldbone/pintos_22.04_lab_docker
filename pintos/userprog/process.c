@@ -213,7 +213,7 @@ process_wait (tid_t child_tid UNUSED) {
 	 * XXX:       추가하는 것을 권장한다. */
 
 	for (int i = 1000000000; i >= 0; i--) {
-		;
+		// thread_yield ();
 	}
 	return -1;
 }
