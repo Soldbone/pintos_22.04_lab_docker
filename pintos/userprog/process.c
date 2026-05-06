@@ -496,8 +496,8 @@ process_exit (void) {
 	/* 4)·5) [TODO B] 부모 reap 동기화. */
 	
 	/* 6) [TODO B] 자식 분리.
-	*    살아있는 자식: parent = NULL로 마크 후 exit_sema up (orphan 즉시 종료 가능하게).
-	*    이미 죽어 wait를 기다리고 있는 자식: 그냥 sema_up.
+	*    자식들의 parent를 NULL로 설정하여 고아로 만든다.
+	*    이미 종료되어 부모의 reap을 기다리는 자식은 exit_sema를 up하여 완전히 종료될 수 있도록 한다.
 	*/
 	struct list_elem *e = list_begin (&curr->children);
 	while (e != list_end (&curr->children)) {
