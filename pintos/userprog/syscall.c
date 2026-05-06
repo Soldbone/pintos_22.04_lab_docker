@@ -11,7 +11,10 @@
 #include "threads/synch.h"
 #include "userprog/gdt.h"
 #include "userprog/process.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
 #include "intrinsic.h"
+#include "threads/palloc.h"
 
 /* ====================================================================
  * [Phase 0] 시스템 콜 공통 레이어
@@ -39,6 +42,9 @@
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+void power_off (void);
+
+size_t strlcpy (char *, const char *, size_t);
 
 struct lock filesys_lock;
 
@@ -93,16 +99,20 @@ check_buffer (const void *buf, size_t size, bool writable) {
 	 * 후속 단계(D 담당)가 mmu.h의 pml4e/pte 조작으로 보강할 수 있도록
 	 * 여기서는 매핑 존재 여부만 검사한다.
 	 * (TODO[D]: 실제 writable 비트 검사 추가 — read 시스템콜의 buffer 검증) */
-	(void) writable;
 
 	const uint8_t *p = buf;
 	const uint8_t *end = p + size;
 	const uint8_t *page = pg_round_down (p);
 	uint64_t *pml4 = thread_current ()->pml4;
 
-	for (; page < end; page += PGSIZE) {
+	for (; page < end; page += PGSIZE) {	//페이지 유효한지 검사용
 		if (!is_user_vaddr (page) || pml4_get_page (pml4, page) == NULL)
 			sys_exit (-1);
+		if (writable) { //작성시에 작성 가능 여부 확인용
+			uint64_t *pte = pml4e_walk(pml4, (uint64_t)page, false);
+			if((*pte&PTE_W) == 0)	//쓰기가 불가능한 페이지일 때
+				sys_exit(-1);
+		}
 	}
 }
 
@@ -110,7 +120,7 @@ void
 check_string (const char *ustr) {
 	if (ustr == NULL)
 		sys_exit (-1);
-
+	
 	uint64_t *pml4 = thread_current ()->pml4;
 	const char *p = ustr;
 	const void *cur_page = NULL;
@@ -148,16 +158,30 @@ sys_exit (int status) {
 
 /* [A] halt: 정상 반환 없음. 미구현 동안에는 -1로 종료. */
 static void
-sys_halt_stub (void) {
-	/* TODO[A]: power_off() 호출. */
-	sys_exit (-1);
+sys_halt (void) {
+	/* TODO[A]: power_off() 호출. deadlock 상황등에 관한 일부 정보를 잃을 수 있으므로 이 호출은 드물게 사용해야함. 조건을 추가하라는 건가?*/
+	//조건을 걸어야 될 것 같은데 뭘 걸어야 할지....
+	//extern bool power_off_when_done;
+	//void power_off (void) NO_RETURN;
+	power_off();
 }
 
 /* [A] exec: 새 프로그램으로 치환. 성공하면 반환 없음. */
 static int
-sys_exec_stub (const char *cmd_line UNUSED) {
+sys_exec (const char *cmd_line UNUSED) {
 	/* TODO[A]: process_exec 연결, 실패 시 -1 반환. */
-	return -1;
+	check_string(cmd_line);
+	
+	//palloc_get_page에 뭘 넣어야 할지 모르겠음. 그래서 임시로 0을 넣어놈.
+	char *cmd_line_copy = palloc_get_page(0);
+	if (cmd_line_copy == NULL)
+		sys_exit(-1);
+
+	strlcpy(cmd_line_copy, cmd_line, PGSIZE);
+
+	if (process_exec(cmd_line_copy) == -1)
+		sys_exit(-1);
+	NOT_REACHED ();
 }
 
 /* [B] fork */
@@ -177,44 +201,103 @@ sys_wait (int pid) {
 
 /* [C] file meta */
 static bool
-sys_create_stub (const char *file UNUSED, unsigned initial_size UNUSED) {
+sys_create_stub (const char *file, unsigned initial_size) {
 	/* TODO[C] */
-	return false;
+	check_string(file);
+
+	lock_acquire(&filesys_lock);
+	bool isCreated = filesys_create(file, initial_size);
+	lock_release(&filesys_lock);
+
+	return isCreated;
 }
 
 static bool
-sys_remove_stub (const char *file UNUSED) {
+sys_remove_stub (const char *file) {
 	/* TODO[C] */
-	return false;
+	check_string(file);
+
+	lock_acquire(&filesys_lock);
+	bool isRemoved = filesys_remove(file);
+	lock_release(&filesys_lock);
+
+	return isRemoved;
 }
 
 static int
-sys_open_stub (const char *file UNUSED) {
+sys_open_stub (const char *file) {
 	/* TODO[C] */
-	return -1;
+	check_string (file);
+
+	lock_acquire(&filesys_lock);
+	struct file *opened_file = filesys_open(file);
+	lock_release(&filesys_lock);
+	
+	if (opened_file == NULL)
+		return -1;
+	
+	int fd = fdt_add(opened_file);
+	if (fd == -1){
+		lock_acquire(&filesys_lock);
+		file_close(opened_file);
+		lock_release(&filesys_lock);
+		return -1;
+	}
+	return fd;
 }
 
 static int
-sys_filesize_stub (int fd UNUSED) {
+sys_filesize_stub (int fd) {
 	/* TODO[C] */
-	return -1;
+	struct file *file = fdt_get(fd);
+	if(file == NULL)
+		return -1;
+	
+	lock_acquire(&filesys_lock);
+	int leng = file_length(file);
+	lock_release(&filesys_lock);
+
+	return leng;
 }
 
 static void
-sys_seek_stub (int fd UNUSED, unsigned position UNUSED) {
+sys_seek_stub (int fd, unsigned position) {
 	/* TODO[C] */
+	struct file *file = fdt_get(fd);
+	if(file == NULL)
+		return;
+	
+	lock_acquire(&filesys_lock);
+	file_seek(file, position);
+	lock_release(&filesys_lock);
+
 }
 
 static unsigned
-sys_tell_stub (int fd UNUSED) {
+sys_tell_stub (int fd) {
 	/* TODO[C] */
-	return 0;
+	struct file *file = fdt_get(fd);
+	if(file == NULL)
+		return 0;
+	lock_acquire(&filesys_lock);
+	uint64_t result = file_tell(file);
+	lock_release(&filesys_lock);
+	return result;
 }
 
 static void
-sys_close_stub (int fd UNUSED) {
+sys_close_stub (int fd) {
 	/* TODO[C] */
-}
+	struct file *file = fdt_get(fd);
+	if (file == NULL)
+		return;
+	lock_acquire(&filesys_lock);
+	file_close(file);
+	lock_release(&filesys_lock);
+	
+	fdt_remove(fd); //파일 닫은 후에 fd table 칸 비우기
+
+}	
 
 /* [D] read/write
  *
@@ -223,19 +306,58 @@ sys_close_stub (int fd UNUSED) {
  * 확장하는 형태로 진행. fd!=1 또는 검증 강화는 D 담당. */
 
 static int
-sys_read_stub (int fd UNUSED, void *buffer UNUSED, unsigned size UNUSED) {
+sys_read_stub (int fd, void *buffer, unsigned int size) {
 	/* TODO[D] */
+
+	if (size <= 0)	//에러 처리
+		return 0;
+	if (fd == 0){	//키보드 입력
+		check_buffer (buffer, size, true);
+		for (unsigned int i = 0; i < size; i++){
+			((uint8_t *)buffer)[i] = input_getc();
+		}
+		return size;
+	}
+	else if(fd >=2){
+		check_buffer (buffer, size, true);
+		lock_acquire(&filesys_lock);
+		//파일 읽기
+		struct file *file = fdt_get(fd);
+		if(file == NULL){
+			lock_release(&filesys_lock);
+			return -1;
+		}
+		int result = file_read(file, buffer, size);
+		lock_release(&filesys_lock);
+		return result;
+	}
 	return -1;
 }
 
 static int
-sys_write_partial (int fd, const void *buffer, unsigned size) {
+sys_write_partial (int fd, const void *buffer, unsigned int size) {
 	/* args-* 회귀 보존을 위한 최소 구현. fd==1만 처리.
 	 * D 담당이 본격 구현 시 buffer 검증 + filesys_lock + 일반 fd 분기 추가. */
+	if (size <= 0)
+		return 0;
+	check_buffer (buffer, size, false);
 	if (fd == 1 /* STDOUT_FILENO */) {
-		check_buffer (buffer, size, false);
+
 		putbuf (buffer, size);
 		return (int) size;
+	}
+	else if(fd >=2){
+		//파일 쓰기
+		lock_acquire(&filesys_lock);
+
+		struct file *file = fdt_get(fd);
+		if (file == NULL){
+			lock_release(&filesys_lock);
+			return -1;
+		}
+		int result = file_write(file, buffer, size);
+		lock_release(&filesys_lock);
+		return result;
 	}
 	/* TODO[D]: 일반 파일 / stdin / 잘못된 fd 처리. */
 	return -1;
@@ -257,13 +379,13 @@ syscall_handler (struct intr_frame *f) {
 	switch (num) {
 		/* --- A 담당 --- */
 		case SYS_HALT:
-			sys_halt_stub ();
+			sys_halt ();
 			break;
 		case SYS_EXIT:
 			sys_exit ((int) a1);
 			break;
 		case SYS_EXEC:
-			f->R.rax = (uint64_t) sys_exec_stub ((const char *) a1);
+			f->R.rax = (uint64_t) sys_exec ((const char *) a1);
 			break;
 
 		/* --- B 담당 --- */
