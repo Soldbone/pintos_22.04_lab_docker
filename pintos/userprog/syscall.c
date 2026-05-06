@@ -14,6 +14,7 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "intrinsic.h"
+#include "threads/palloc.h"
 
 /* ====================================================================
  * [Phase 0] 시스템 콜 공통 레이어
@@ -41,6 +42,9 @@
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+void power_off (void);
+
+size_t strlcpy (char *, const char *, size_t);
 
 struct lock filesys_lock;
 
@@ -112,7 +116,7 @@ void
 check_string (const char *ustr) {
 	if (ustr == NULL)
 		sys_exit (-1);
-
+	
 	uint64_t *pml4 = thread_current ()->pml4;
 	const char *p = ustr;
 	const void *cur_page = NULL;
@@ -150,16 +154,30 @@ sys_exit (int status) {
 
 /* [A] halt: 정상 반환 없음. 미구현 동안에는 -1로 종료. */
 static void
-sys_halt_stub (void) {
-	/* TODO[A]: power_off() 호출. */
-	sys_exit (-1);
+sys_halt (void) {
+	/* TODO[A]: power_off() 호출. deadlock 상황등에 관한 일부 정보를 잃을 수 있으므로 이 호출은 드물게 사용해야함. 조건을 추가하라는 건가?*/
+	//조건을 걸어야 될 것 같은데 뭘 걸어야 할지....
+	//extern bool power_off_when_done;
+	//void power_off (void) NO_RETURN;
+	power_off();
 }
 
 /* [A] exec: 새 프로그램으로 치환. 성공하면 반환 없음. */
 static int
-sys_exec_stub (const char *cmd_line UNUSED) {
+sys_exec (const char *cmd_line UNUSED) {
 	/* TODO[A]: process_exec 연결, 실패 시 -1 반환. */
-	return -1;
+	check_string(cmd_line);
+	
+	//palloc_get_page에 뭘 넣어야 할지 모르겠음. 그래서 임시로 0을 넣어놈.
+	char *cmd_line_copy = palloc_get_page(0);
+	if (cmd_line_copy == NULL)
+		sys_exit(-1);
+
+	strlcpy(cmd_line_copy, cmd_line, PGSIZE);
+
+	if (process_exec(cmd_line_copy) == -1)
+		sys_exit(-1);
+	NOT_REACHED ();
 }
 
 /* [B] fork */
@@ -317,13 +335,13 @@ syscall_handler (struct intr_frame *f) {
 	switch (num) {
 		/* --- A 담당 --- */
 		case SYS_HALT:
-			sys_halt_stub ();
+			sys_halt ();
 			break;
 		case SYS_EXIT:
 			sys_exit ((int) a1);
 			break;
 		case SYS_EXEC:
-			f->R.rax = (uint64_t) sys_exec_stub ((const char *) a1);
+			f->R.rax = (uint64_t) sys_exec ((const char *) a1);
 			break;
 
 		/* --- B 담당 --- */
