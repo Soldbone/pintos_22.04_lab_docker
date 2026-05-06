@@ -99,16 +99,20 @@ check_buffer (const void *buf, size_t size, bool writable) {
 	 * 후속 단계(D 담당)가 mmu.h의 pml4e/pte 조작으로 보강할 수 있도록
 	 * 여기서는 매핑 존재 여부만 검사한다.
 	 * (TODO[D]: 실제 writable 비트 검사 추가 — read 시스템콜의 buffer 검증) */
-	(void) writable;
 
 	const uint8_t *p = buf;
 	const uint8_t *end = p + size;
 	const uint8_t *page = pg_round_down (p);
 	uint64_t *pml4 = thread_current ()->pml4;
 
-	for (; page < end; page += PGSIZE) {
+	for (; page < end; page += PGSIZE) {	//페이지 유효한지 검사용
 		if (!is_user_vaddr (page) || pml4_get_page (pml4, page) == NULL)
 			sys_exit (-1);
+		if (writable) { //작성시에 작성 가능 여부 확인용
+			uint64_t *pte = pml4e_walk(pml4, (uint64_t)page, false);
+			if((*pte&PTE_W) == 0)	//쓰기가 불가능한 페이지일 때
+				sys_exit(-1);
+		}
 	}
 }
 
@@ -301,19 +305,58 @@ sys_close_stub (int fd) {
  * 확장하는 형태로 진행. fd!=1 또는 검증 강화는 D 담당. */
 
 static int
-sys_read_stub (int fd UNUSED, void *buffer UNUSED, unsigned size UNUSED) {
+sys_read_stub (int fd, void *buffer, unsigned int size) {
 	/* TODO[D] */
+
+	if (size <= 0)	//에러 처리
+		return 0;
+	if (fd == 0){	//키보드 입력
+		check_buffer (buffer, size, true);
+		for (unsigned int i = 0; i < size; i++){
+			((uint8_t *)buffer)[i] = input_getc();
+		}
+		return size;
+	}
+	else if(fd >=2){
+		check_buffer (buffer, size, true);
+		lock_acquire(&filesys_lock);
+		//파일 읽기
+		struct file *file = fdt_get(fd);
+		if(file == NULL){
+			lock_release(&filesys_lock);
+			return -1;
+		}
+		int result = file_read(file, buffer, size);
+		lock_release(&filesys_lock);
+		return result;
+	}
 	return -1;
 }
 
 static int
-sys_write_partial (int fd, const void *buffer, unsigned size) {
+sys_write_partial (int fd, const void *buffer, unsigned int size) {
 	/* args-* 회귀 보존을 위한 최소 구현. fd==1만 처리.
 	 * D 담당이 본격 구현 시 buffer 검증 + filesys_lock + 일반 fd 분기 추가. */
+	if (size <= 0)
+		return 0;
+	check_buffer (buffer, size, false);
 	if (fd == 1 /* STDOUT_FILENO */) {
-		check_buffer (buffer, size, false);
+
 		putbuf (buffer, size);
 		return (int) size;
+	}
+	else if(fd >=2){
+		//파일 쓰기
+		lock_acquire(&filesys_lock);
+
+		struct file *file = fdt_get(fd);
+		if (file == NULL){
+			lock_release(&filesys_lock);
+			return -1;
+		}
+		int result = file_write(file, buffer, size);
+		lock_release(&filesys_lock);
+		return result;
 	}
 	/* TODO[D]: 일반 파일 / stdin / 잘못된 fd 처리. */
 	return -1;
