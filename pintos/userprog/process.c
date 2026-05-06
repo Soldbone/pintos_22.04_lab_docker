@@ -32,6 +32,12 @@ struct parsed_command {
 	char *program_name;
 };
 
+struct initd_aux {
+	char *file_name;
+	struct thread *parent;
+	struct semaphore init_sema;
+};
+
 static void process_cleanup (void);
 static bool load (char *file_name, struct intr_frame *if_);
 static bool parse_command_line (char *cmdline, struct parsed_command *cmd);
@@ -215,10 +221,21 @@ process_create_initd (const char *file_name) {
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
 
+	// 자식 스레드의 정보를 저장하기 위한 구조체임
+	struct initd_aux aux;
+	aux.file_name = fn_copy;
+	aux.parent = thread_current ();
+	sema_init (&aux.init_sema, 0);
+
 	/* FILE_NAME을 실행할 새 스레드를 생성한다. */
-	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
-	if (tid == TID_ERROR)
+	tid = thread_create (file_name, PRI_DEFAULT, initd, &aux);
+	if (tid == TID_ERROR) {
 		palloc_free_page (fn_copy);
+		return TID_ERROR;
+	}
+
+	sema_down (&aux.init_sema);
+
 	return tid;
 }
 
@@ -228,6 +245,11 @@ initd (void *f_name) {
 #ifdef VM
 	supplemental_page_table_init (&thread_current ()->spt);
 #endif
+	struct initd_aux *aux = f_name;
+	char *file_name = aux->file_name;
+
+	child_register (aux->parent, thread_current ());
+	sema_up (&aux->init_sema);
 
 	process_init ();
 
@@ -235,7 +257,7 @@ initd (void *f_name) {
 	if (!fdt_init (thread_current ()))
 		PANIC ("Failed to allocate fd table for initd\n");
 
-	if (process_exec (f_name) < 0)
+	if (process_exec (file_name) < 0)
 		PANIC("Fail to launch initd\n");
 	NOT_REACHED ();
 }
@@ -245,8 +267,22 @@ initd (void *f_name) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	/* 현재 스레드를 새 스레드로 복제한다. */
-	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+	struct thread *current = thread_current ();
+	current->parent_if = *if_;
+	tid_t tid = thread_create (name,
+			PRI_DEFAULT, __do_fork, current);
+
+	if (tid == TID_ERROR) {
+		return TID_ERROR;
+	}
+
+	sema_down (&current->fork_sema);
+
+	if (!current->fork_success) {
+		return TID_ERROR;
+	}
+
+	return tid;
 }
 
 #ifndef VM
@@ -261,21 +297,35 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	bool writable;
 
 	/* 1. TODO: parent_page가 커널 페이지라면 즉시 반환한다. */
+	if (is_kern_pte (pte)) {
+		return true;
+	}
 
 	/* 2. 부모의 page map level 4에서 VA를 해석한다. */
 	parent_page = pml4_get_page (parent->pml4, va);
+	if (parent_page == NULL) {
+		return false;
+	}
 
 	/* 3. TODO: 자식용 새 PAL_USER 페이지를 할당하고 결과를
 	 *    TODO: NEWPAGE에 설정한다. */
+	newpage = palloc_get_page (PAL_USER);
+	if (newpage == NULL) {
+		return false;
+	}
 
 	/* 4. TODO: 부모의 페이지를 새 페이지에 복제하고,
 	 *    TODO: 부모 페이지가 쓰기 가능한지 확인한다(결과에 따라 WRITABLE을
 	 *    TODO: 설정한다). */
+	memcpy (newpage, parent_page, PGSIZE);
+	writable = is_writable (pte);
 
 	/* 5. WRITABLE 권한으로 주소 VA에 있는 자식의 페이지 테이블에
 	 *    새 페이지를 추가한다. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
 		/* 6. TODO: 페이지 삽입에 실패하면 오류 처리를 한다. */
+		palloc_free_page (newpage);
+		return false;
 	}
 	return true;
 }
@@ -290,7 +340,7 @@ __do_fork (void *aux) {
 	struct thread *parent = (struct thread *) aux;
 	struct thread *current = thread_current ();
 	/* TODO: 어떻게든 parent_if를 전달한다. (즉, process_fork()의 if_) */
-	struct intr_frame *parent_if;
+	struct intr_frame *parent_if = &parent->parent_if;
 	bool succ = true;
 
 	/* 1. cpu 컨텍스트를 로컬 스택으로 읽어 온다. */
@@ -298,17 +348,23 @@ __do_fork (void *aux) {
 
 	/* 2. PT를 복제한다. */
 	current->pml4 = pml4_create();
-	if (current->pml4 == NULL)
-		goto error;
+	if (current->pml4 == NULL) {
+		succ = false;	// 실패 시 succ 상태를 false로 변경
+		goto done;		// 일괄적인 완료 처리를 위해 done으로 레이블 변경
+	}
 
 	process_activate (current);
 #ifdef VM
 	supplemental_page_table_init (&current->spt);
-	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
-		goto error;
+	if (!supplemental_page_table_copy (&current->spt, &parent->spt)) {
+		succ = false;
+		goto done;
+	}
 #else
-	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
-		goto error;
+	if (!pml4_for_each (parent->pml4, duplicate_pte, parent)) {
+		succ = false;
+		goto done;
+	}
 #endif
 
 	/* TODO: 여기에 코드를 작성한다.
@@ -317,12 +373,26 @@ __do_fork (void *aux) {
 	 * TODO:       성공적으로 복제하기 전까지 부모는 fork()에서 반환해서는
 	 * TODO:       안 된다는 점에 유의한다. */
 
+	if (!fdt_copy (parent, current)) {
+		succ = false;
+		goto done;
+	}
+
+	// 복제가 성공한 뒤 부모의 children 리스트에 등록
+	child_register (parent, current);
+
 	process_init ();
 
 	/* 마지막으로 새로 생성한 프로세스로 전환한다. */
-	if (succ)
+done:
+	parent->fork_success = succ;
+	sema_up (&parent->fork_sema);
+
+	if (succ) {
+		if_.R.rax = 0;
 		do_iret (&if_);
-error:
+	}
+
 	thread_exit ();
 }
 
@@ -366,15 +436,24 @@ process_exec (void *f_name) {
  *
  * 이 함수는 문제 2-2에서 구현될 것이다. 지금은 아무 일도 하지 않는다. */
 int
-process_wait (tid_t child_tid UNUSED) {
+process_wait (tid_t child_tid) {
 	/* XXX: 힌트) process_wait(initd)가 반환되면 pintos가 종료되므로,
 	 * XXX:       process_wait를 구현하기 전에는 여기에 무한 루프를
 	 * XXX:       추가하는 것을 권장한다. */
 
-	for (int i = 1000000000; i >= 0; i--) {
-		// thread_yield ();
+	struct thread *child = child_find (thread_current (), child_tid);
+	if (child == NULL || child->waited) {
+		return -1;
 	}
-	return -1;
+
+	child->waited = true;
+	sema_down (&child->wait_sema);
+
+	int status = child->exit_status;
+	child_remove (child);
+	sema_up (&child->exit_sema);
+
+	return status;
 }
 
 /* 프로세스를 종료한다. 이 함수는 thread_exit()에서 호출된다.
@@ -412,18 +491,33 @@ process_exit (void) {
 	 *    }
 	 */
 
-	/* 4)·5) [TODO B] 부모 reap 동기화.
-	 *    curr->exited = true;
-	 *    if (curr->parent != NULL) {
-	 *        sema_up (&curr->wait_sema);
-	 *        sema_down (&curr->exit_sema);
-	 *    }
-	 */
-
+	/* 4)·5) [TODO B] 부모 reap 동기화. */
+	
 	/* 6) [TODO B] 자식 분리.
-	 *    살아있는 자식: parent = NULL로 마크 후 exit_sema up (orphan 즉시 종료 가능하게).
-	 *    이미 죽어 wait를 기다리고 있는 자식: 그냥 sema_up.
-	 */
+	*    살아있는 자식: parent = NULL로 마크 후 exit_sema up (orphan 즉시 종료 가능하게).
+	*    이미 죽어 wait를 기다리고 있는 자식: 그냥 sema_up.
+	*/
+	struct list_elem *e = list_begin (&curr->children);
+	while (e != list_end (&curr->children)) {
+		struct list_elem *next = list_next (e);
+		struct thread *child = list_entry (e, struct thread, child_elem);
+
+		child->parent = NULL;
+		child_remove (child);
+
+		if (child->exited) {
+			sema_up (&child->exit_sema);
+		}
+
+		e = next;
+	}
+
+	// 자식 스레드의 종료 동작
+	curr->exited = true;
+	if (curr->parent != NULL) {
+		sema_up (&curr->wait_sema);
+		sema_down (&curr->exit_sema);
+	}
 
 	/* 7) 페이지 디렉터리 제거. */
 	process_cleanup ();
