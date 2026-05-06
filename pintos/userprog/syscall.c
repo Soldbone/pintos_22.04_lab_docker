@@ -11,6 +11,8 @@
 #include "threads/synch.h"
 #include "userprog/gdt.h"
 #include "userprog/process.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
 #include "intrinsic.h"
 
 /* ====================================================================
@@ -169,51 +171,110 @@ sys_fork_stub (const char *thread_name UNUSED, struct intr_frame *if_ UNUSED) {
 
 /* [B] wait */
 static int
-sys_wait_stub (int pid UNUSED) {
+sys_wait_stub (int pid) {
 	/* TODO[B]: process_wait 연결. */
 	return -1;
 }
 
 /* [C] file meta */
 static bool
-sys_create_stub (const char *file UNUSED, unsigned initial_size UNUSED) {
+sys_create_stub (const char *file, unsigned initial_size) {
 	/* TODO[C] */
-	return false;
+	check_string(file);
+
+	lock_acquire(&filesys_lock);
+	bool isCreated = filesys_create(file, initial_size);
+	lock_release(&filesys_lock);
+
+	return isCreated;
 }
 
 static bool
-sys_remove_stub (const char *file UNUSED) {
+sys_remove_stub (const char *file) {
 	/* TODO[C] */
-	return false;
+	check_string(file);
+
+	lock_acquire(&filesys_lock);
+	bool isRemoved = filesys_remove(file);
+	lock_release(&filesys_lock);
+
+	return isRemoved;
 }
 
 static int
-sys_open_stub (const char *file UNUSED) {
+sys_open_stub (const char *file) {
 	/* TODO[C] */
-	return -1;
+	check_string (file);
+
+	lock_acquire(&filesys_lock);
+	struct file *opened_file = filesys_open(file);
+	lock_release(&filesys_lock);
+	
+	if (opened_file == NULL)
+		return -1;
+	
+	int fd = fdt_add(opened_file);
+	if (fd == -1){
+		lock_acquire(&filesys_lock);
+		file_close(opened_file);
+		lock_release(&filesys_lock);
+		return -1;
+	}
+	return fd;
 }
 
 static int
-sys_filesize_stub (int fd UNUSED) {
+sys_filesize_stub (int fd) {
 	/* TODO[C] */
-	return -1;
+	struct file *file = fdt_get(fd);
+	if(file == NULL)
+		return -1;
+	
+	lock_acquire(&filesys_lock);
+	int leng = file_length(file);
+	lock_release(&filesys_lock);
+
+	return leng;
 }
 
 static void
-sys_seek_stub (int fd UNUSED, unsigned position UNUSED) {
+sys_seek_stub (int fd, unsigned position) {
 	/* TODO[C] */
+	struct file *file = fdt_get(fd);
+	if(file == NULL)
+		return;
+	
+	lock_acquire(&filesys_lock);
+	file_seek(file, position);
+	lock_release(&filesys_lock);
+
 }
 
 static unsigned
-sys_tell_stub (int fd UNUSED) {
+sys_tell_stub (int fd) {
 	/* TODO[C] */
-	return 0;
+	struct file *file = fdt_get(fd);
+	if(file == NULL)
+		return 0;
+	lock_acquire(&filesys_lock);
+	uint64_t result = file_tell(file);
+	lock_release(&filesys_lock);
+	return result;
 }
 
 static void
-sys_close_stub (int fd UNUSED) {
+sys_close_stub (int fd) {
 	/* TODO[C] */
-}
+	struct file *file = fdt_get(fd);
+	if (file == NULL)
+		return;
+	lock_acquire(&filesys_lock);
+	file_close(file);
+	lock_release(&filesys_lock);
+	
+	fdt_remove(fd); //파일 닫은 후에 fd table 칸 비우기
+
+}	
 
 /* [D] read/write
  *
