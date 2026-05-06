@@ -186,16 +186,17 @@ sys_exec (const char *cmd_line UNUSED) {
 
 /* [B] fork */
 static int
-sys_fork_stub (const char *thread_name UNUSED, struct intr_frame *if_ UNUSED) {
+sys_fork (const char *thread_name, struct intr_frame *if_) {
 	/* TODO[B]: process_fork 연결. 부모 if_ 스냅샷 보관. */
-	return -1;
+	check_string (thread_name);
+	return process_fork (thread_name, if_);
 }
 
 /* [B] wait */
 static int
-sys_wait_stub (int pid) {
+sys_wait (int pid) {
 	/* TODO[B]: process_wait 연결. */
-	return -1;
+	return process_wait (pid);
 }
 
 /* [C] file meta */
@@ -389,10 +390,10 @@ syscall_handler (struct intr_frame *f) {
 
 		/* --- B 담당 --- */
 		case SYS_FORK:
-			f->R.rax = (uint64_t) sys_fork_stub ((const char *) a1, f);
+			f->R.rax = (uint64_t) sys_fork ((const char *) a1, f);
 			break;
 		case SYS_WAIT:
-			f->R.rax = (uint64_t) sys_wait_stub ((int) a1);
+			f->R.rax = (uint64_t) sys_wait ((int) a1);
 			break;
 
 		/* --- C 담당 --- */
