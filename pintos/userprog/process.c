@@ -20,6 +20,8 @@
 #include "threads/mmu.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "threads/palloc.h"
+
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -402,15 +404,15 @@ process_exit (void) {
 	fdt_close_all (curr);
 	fdt_destroy (curr);
 
-	/* 3) [TODO A] 실행 파일에 쓰기 허용 + close.
-	 *    if (curr->running_file != NULL) {
-	 *        lock_acquire (&filesys_lock);
-	 *        file_allow_write (curr->running_file);
-	 *        file_close (curr->running_file);
-	 *        lock_release (&filesys_lock);
-	 *        curr->running_file = NULL;
-	 *    }
-	 */
+	//[TODO A] 실행 파일에 쓰기 허용 + close.
+	 if (curr->running_file != NULL) {
+	 lock_acquire (&filesys_lock);
+	 file_allow_write (curr->running_file);
+	 file_close (curr->running_file);
+	 lock_release (&filesys_lock);
+	 curr->running_file = NULL;
+	 }
+	
 
 	/* 4)·5) [TODO B] 부모 reap 동기화.
 	 *    curr->exited = true;
@@ -556,6 +558,8 @@ load (char *file_name, struct intr_frame *if_) {
 		printf ("load: %s: open failed\n", cmd.program_name);
 		goto done;
 	}
+	file_deny_write (file);
+	t->running_file = file;
 
 	/* 실행 파일 헤더를 읽고 검증한다. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -636,7 +640,10 @@ load (char *file_name, struct intr_frame *if_) {
 
 done:
 	/* 로드 성공 여부와 관계없이 여기로 온다. */
-	file_close (file);
+	if (!success && file != NULL){	
+		t->running_file = NULL;
+		file_close (file);
+	}
 	return success;
 }
 
